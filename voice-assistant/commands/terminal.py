@@ -19,6 +19,48 @@ logger = logging.getLogger(__name__)
 
 _OS = platform.system()
 
+# ---------------------------------------------------------------------------
+# Built-in terminal command target data (single source of truth for plan)
+# ---------------------------------------------------------------------------
+
+# Maps command phrase → the shell command string passed to _run_in_terminal.
+_TERMINAL_COMMANDS: Dict[str, str] = {
+    "git status":      "git status",
+    "show git status": "git status",
+    "git pull":        "git pull",
+    "pull latest":     "git pull",
+    "run start":       "npm start",
+    "start server":    "npm start",
+    "npm start":       "npm start",
+    "run dev":         "npm run dev",
+    "start dev":       "npm run dev",
+    "npm dev":         "npm run dev",
+    "run tests":       "pytest",
+    "run test":        "pytest",
+    "run pytest":      "pytest",
+    "npm test":        "npm test",
+    "npm build":       "npm run build",
+    "run build":       "npm run build",
+    "run python":      "python main.py",
+    "run main":        "python main.py",
+}
+
+
+def plan_terminal_command(phrase: str, os_name: str) -> Optional[dict]:
+    """
+    Return a plan dict for a built-in terminal command phrase.
+
+    Returns None if *phrase* is not a known built-in terminal command.
+    """
+    cmd = _TERMINAL_COMMANDS.get(phrase)
+    if cmd is None:
+        return None
+    return {
+        "action": "terminal",
+        "target": cmd,
+        "platform": os_name,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Low-level helper

@@ -20,6 +20,48 @@ logger = logging.getLogger(__name__)
 
 _OS = platform.system()
 
+# ---------------------------------------------------------------------------
+# Window command plan data (Windows-only commands are flagged)
+# ---------------------------------------------------------------------------
+
+# Maps phrase → action type. All window commands use "window" action.
+# "supported" key is False for commands that only work on Windows.
+_WINDOW_ACTIONS: Dict[str, dict] = {
+    "minimise window":  {"action": "window", "target": "minimize active window"},
+    "minimize window":  {"action": "window", "target": "minimize active window"},
+    "maximise window":  {"action": "window", "target": "maximize active window"},
+    "maximize window":  {"action": "window", "target": "maximize active window"},
+    "restore window":   {"action": "window", "target": "restore active window"},
+    "close window":     {"action": "window", "target": "close active window"},
+    "snap left":        {"action": "window", "target": "snap active window left", "windows_only": True},
+    "snap right":       {"action": "window", "target": "snap active window right", "windows_only": True},
+    "swap monitors":    {"action": "window", "target": "rotate windows across monitors", "windows_only": True},
+    "switch monitors":  {"action": "window", "target": "rotate windows across monitors", "windows_only": True},
+    "extend displays":  {"action": "window", "target": "extend displays", "windows_only": True},
+    "extend monitors":  {"action": "window", "target": "extend displays", "windows_only": True},
+}
+
+
+def plan_window_command(phrase: str, os_name: str) -> Optional[dict]:
+    """
+    Return a plan dict for a window management command phrase.
+
+    Returns None if *phrase* is not a known window command.
+    Windows-only commands report ``"supported": false`` on non-Windows platforms.
+    """
+    entry = _WINDOW_ACTIONS.get(phrase)
+    if entry is None:
+        return None
+    windows_only = entry.get("windows_only", False)
+    supported = (os_name == "windows") if windows_only else True
+    result = {
+        "action": entry["action"],
+        "target": entry["target"],
+        "platform": os_name,
+        "supported": supported,
+    }
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Low-level helpers

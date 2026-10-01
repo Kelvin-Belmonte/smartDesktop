@@ -12,11 +12,12 @@ Command matching strategy (in priority order):
 """
 
 import logging
-from typing import Callable, Dict, Optional, Tuple
+import platform
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from commands.apps import build_app_commands
-from commands.terminal import build_terminal_commands
-from commands.windows import build_window_commands
+from commands.apps import build_app_commands, plan_app_command, _APP_TARGETS, _APP_ALIASES
+from commands.terminal import build_terminal_commands, plan_terminal_command, _TERMINAL_COMMANDS
+from commands.windows import build_window_commands, plan_window_command, _WINDOW_ACTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,38 @@ DESTRUCTIVE_COMMANDS = {
     "run main",
     "run pytest",
 }
+
+
+# Maps plan() platform argument → canonical lowercase key used in plan dicts.
+# Also maps platform.system() raw values so callers can pass either form.
+_PLATFORM_MAP = {
+    "windows": "windows",
+    "darwin":  "macos",
+    "macos":   "macos",
+    "linux":   "linux",
+}
+
+# Maps canonical lowercase key → platform.system() string for the module-level _OS lookups
+_OS_KEY_MAP = {
+    "windows": "Windows",
+    "macos":   "Darwin",
+    "linux":   "Linux",
+}
+
+
+def _resolve_os(platform_arg: Optional[str]) -> str:
+    """
+    Convert a plan() ``platform`` argument to the canonical lowercase key
+    ``"windows"``, ``"macos"``, or ``"linux"``.
+
+    Accepts ``"windows"``, ``"macos"``, ``"linux"`` (case-insensitive),
+    or the raw ``platform.system()`` values (``"Windows"``, ``"Darwin"``,
+    ``"Linux"``). Falls back to the current OS.
+    """
+    if platform_arg is None:
+        raw = platform.system()
+        return _PLATFORM_MAP.get(raw.lower(), "linux")
+    return _PLATFORM_MAP.get(platform_arg.lower(), "linux")
 
 
 class CommandParser:
@@ -77,6 +110,7 @@ class CommandParser:
         self.dry_run: bool = dry_run
         self.confirm_callback = confirm_callback
         cmd_cfg = config.get("commands", {})
+        self._cmd_cfg = cmd_cfg  # retained for plan()
         self.prefix: str = cmd_cfg.get("prefix", "jarvis").lower()
         self.confirm_destructive: bool = bool(cmd_cfg.get("confirm_destructive", False))
 
@@ -88,6 +122,16 @@ class CommandParser:
         projects_cfg = cmd_cfg.get("projects") or {}
         for proj_name in projects_cfg:
             self._destructive_commands.add(f"go to {proj_name.lower()}")
+
+        # Track custom app paths for plan() (apps_config entries not in _APP_TARGETS)
+        self._custom_app_paths: Dict[str, str] = {}
+        apps_config = cmd_cfg.get("apps") or {}
+        import os as _os
+        for keyword, path in apps_config.items():
+            phrase_key = f"open {keyword.lower()}"
+            if phrase_key not in _APP_TARGETS and phrase_key not in _APP_ALIASES:
+                expanded = _os.path.expandvars(_os.path.expanduser(path))
+                self._custom_app_paths[phrase_key] = expanded
 
         self._commands: CommandMap = {}
         self._commands.update(build_app_commands(cmd_cfg.get("apps"), dry_run=dry_run))
@@ -153,6 +197,118 @@ class CommandParser:
     def is_destructive(self, command: str) -> bool:
         """Return True if ``command`` is classified as destructive or high-impact."""
         return command.lower() in self._destructive_commands
+
+    def plan(self, transcript: str, platform: Optional[str] = None) -> Optional[dict]:
+        """
+        Return a structured description of what *transcript* would do, without
+        performing any OS action.
+
+        Args:
+            transcript: Raw phrase or transcript (wake-word prefix is stripped).
+            platform:   One of ``"windows"``, ``"macos"``, or ``"linux"``.
+                        Defaults to the current OS when None.
+
+        Returns:
+            A dict with keys ``phrase``, ``command``, ``action``, ``target``,
+            ``platform``.  Macros additionally have a ``steps`` key with a list
+            of per-step plan dicts.  Returns ``None`` for an unknown phrase.
+        """
+        # Normalise platform to platform.system() keys
+        os_name = _resolve_os(platform)
+        phrase = self._strip_prefix(transcript)
+        _, matched = self._match(phrase)
+        if matched is None:
+            return None
+
+        detail = self._plan_matched(matched, os_name)
+        return {
+            "phrase": phrase,
+            "command": matched,
+            **detail,
+        }
+
+    def _plan_matched(self, matched: str, os_name: str) -> dict:
+        """
+        Return the action/target detail for an already-matched command phrase.
+        Never touches the OS.
+
+        Priority mirrors the command-map override order:
+          macros > projects > app > terminal > window
+        """
+        cmd_cfg = self._cmd_cfg
+
+        # 1. Macros override everything (same as build_terminal_commands behaviour)
+        macros_cfg = cmd_cfg.get("macros") or {}
+        for phrase_key, steps in macros_cfg.items():
+            if phrase_key.lower() == matched:
+                step_plans = []
+                for step in steps:
+                    # Use the same substring matching that execute() uses so that
+                    # e.g. "run npm run dev" resolves to "run dev" (npm run dev),
+                    # not "unknown".
+                    step_stripped = self._strip_prefix(step)
+                    _, step_matched = self._match(step_stripped)
+                    if step_matched is not None:
+                        step_detail = self._plan_matched(step_matched, os_name)
+                        step_command = step_matched
+                    else:
+                        # Fall back to literal step as unknown
+                        step_detail = {"action": "unknown", "target": step_stripped,
+                                       "platform": os_name}
+                        step_command = step_stripped
+                    step_plans.append({
+                        "phrase": step,
+                        "command": step_command,
+                        **step_detail,
+                    })
+                return {
+                    "action": "macro",
+                    "target": matched,
+                    "platform": os_name,
+                    "steps": step_plans,
+                }
+
+        # 2. Project shortcuts ("go to <name>")
+        if matched.startswith("go to "):
+            proj_name = matched[len("go to "):]
+            path = (cmd_cfg.get("projects") or {}).get(proj_name, proj_name)
+            import os as _os
+            expanded = _os.path.expandvars(_os.path.expanduser(path))
+            return {
+                "action": "project",
+                "target": expanded,
+                "platform": os_name,
+            }
+
+        # 3. App commands
+        app_plan = plan_app_command(matched, os_name)
+        if app_plan is not None:
+            return app_plan
+
+        # 4. Terminal built-ins
+        term_plan = plan_terminal_command(matched, os_name)
+        if term_plan is not None:
+            return term_plan
+
+        # 5. Window commands
+        win_plan = plan_window_command(matched, os_name)
+        if win_plan is not None:
+            return win_plan
+
+        # 6. Custom apps (not in _APP_TARGETS — registered from apps_config)
+        if matched in self._custom_app_paths:
+            return {
+                "action": "launch",
+                "target": self._custom_app_paths[matched],
+                "platform": os_name,
+            }
+
+        # Fallback
+        return {
+            "action": "unknown",
+            "target": matched,
+            "platform": os_name,
+        }
 
     @property
     def registered_commands(self) -> list:

@@ -8,7 +8,7 @@ One file per task from [`BOB_TASKS.md`](../../BOB_TASKS.md), started from [TEMPL
 | [02-security-audit.md](02-security-audit.md) | T2: Security and safety audit | 🛡️ SD Auditor | ✅ check_docs security OK |
 | [03-bug-hunt.md](03-bug-hunt.md) | T3: Bug hunt and baseline tests | 🧪 SD Tester | ✅ check_docs bugs OK, 45 passed + 7 xfailed |
 | [04-fix-bugs.md](04-fix-bugs.md) | T4: Fix the bugs | 🛠️ SD Developer | ✅ 52 passed, 0 xfailed |
-| [05-dry-run-text-mode.md](05-dry-run-text-mode.md) | T5: Feature: dry-run and text mode | 🛠️ SD Developer | ✅ 76 passed |
+| [05-dry-run-text-mode.md](05-dry-run-text-mode.md) | T5: Feature: dry-run and text mode | 🛠️ SD Developer | ✅ 76 passed, then 121 + 42 after the follow-ups |
 | [06-playground.md](06-playground.md) | T6: Feature: web playground | 🛠️ SD Developer | ✅ 30 passed |
 | [07-safety-layer.md](07-safety-layer.md) | T7: Safety layer | 🛠️ SD Developer | ✅ 92 passed |
 | [08-tests-ci.md](08-tests-ci.md) | T8: Portable tests and CI | 🧪 SD Tester | ✅ 92 + 30 passed, bandit 0 High (CI matrix pending push) |

@@ -385,5 +385,299 @@ class TestTextDryRunEndToEnd(unittest.TestCase):
         self.assertIn("open chrome", result.stdout)
 
 
+# ==================================================================
+# New for follow-up: plan() tests
+# ==================================================================
+
+class TestPlanAppCommands(unittest.TestCase):
+    """plan() returns correct structured dicts for app commands."""
+
+    def setUp(self):
+        self.parser = CommandParser(_make_config(), dry_run=True)
+
+    def test_open_chrome_windows(self):
+        p = self.parser.plan("open chrome", platform="windows")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "launch")
+        self.assertEqual(p["target"], "start chrome")
+        self.assertEqual(p["command"], "open chrome")
+
+    def test_open_chrome_macos(self):
+        p = self.parser.plan("open chrome", platform="macos")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["target"], "Google Chrome")
+
+    def test_open_chrome_linux(self):
+        p = self.parser.plan("open chrome", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["target"], "google-chrome")
+
+    def test_open_chrome_three_platforms_differ(self):
+        """All three platform targets for open chrome must be distinct."""
+        targets = {
+            plat: self.parser.plan("open chrome", platform=plat)["target"]
+            for plat in ("windows", "macos", "linux")
+        }
+        self.assertEqual(len(set(targets.values())), 3,
+                         f"Expected 3 distinct targets, got: {targets}")
+
+    def test_open_spotify_action_is_launch(self):
+        p = self.parser.plan("open spotify", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "launch")
+
+    def test_play_liked_songs_alias(self):
+        p = self.parser.plan("play my liked songs", platform="windows")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "launch")
+
+    def test_unknown_phrase_returns_none(self):
+        p = self.parser.plan("xyzzy totally unknown 99999", platform="linux")
+        self.assertIsNone(p)
+
+
+class TestPlanTerminalCommands(unittest.TestCase):
+    """plan() returns correct structured dicts for terminal commands."""
+
+    def setUp(self):
+        self.parser = CommandParser(_make_config(), dry_run=True)
+
+    def test_git_status_action(self):
+        p = self.parser.plan("git status", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "terminal")
+        self.assertEqual(p["target"], "git status")
+
+    def test_run_dev_target(self):
+        p = self.parser.plan("run dev", platform="windows")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["target"], "npm run dev")
+
+    def test_run_tests_target(self):
+        p = self.parser.plan("run tests", platform="macos")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["target"], "pytest")
+
+
+class TestPlanWindowCommands(unittest.TestCase):
+    """plan() returns correct structured dicts for window commands."""
+
+    def setUp(self):
+        self.parser = CommandParser(_make_config(), dry_run=True)
+
+    def test_minimise_window_action(self):
+        p = self.parser.plan("minimise window", platform="windows")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "window")
+        self.assertTrue(p["supported"])
+
+    def test_snap_left_windows_supported(self):
+        p = self.parser.plan("snap left", platform="windows")
+        self.assertIsNotNone(p)
+        self.assertTrue(p["supported"])
+
+    def test_snap_left_macos_not_supported(self):
+        p = self.parser.plan("snap left", platform="macos")
+        self.assertIsNotNone(p)
+        self.assertFalse(p["supported"])
+
+    def test_snap_left_linux_not_supported(self):
+        p = self.parser.plan("snap left", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertFalse(p["supported"])
+
+    def test_swap_monitors_windows_supported(self):
+        p = self.parser.plan("swap monitors", platform="windows")
+        self.assertTrue(p["supported"])
+
+    def test_swap_monitors_linux_not_supported(self):
+        p = self.parser.plan("swap monitors", platform="linux")
+        self.assertFalse(p["supported"])
+
+
+class TestPlanMacro(unittest.TestCase):
+    """plan() for macros returns action=macro with nested steps."""
+
+    def _parser_with_macro(self, macro_def):
+        return CommandParser(
+            _make_config(macros=macro_def),
+            dry_run=True,
+        )
+
+    def test_macro_action_is_macro(self):
+        parser = self._parser_with_macro({
+            "morning routine": ["open chrome", "open spotify"],
+        })
+        p = parser.plan("morning routine", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "macro")
+
+    def test_macro_has_steps(self):
+        parser = self._parser_with_macro({
+            "morning routine": ["open chrome", "open spotify"],
+        })
+        p = parser.plan("morning routine", platform="linux")
+        self.assertIn("steps", p)
+        self.assertEqual(len(p["steps"]), 2)
+
+    def test_macro_step_has_required_keys(self):
+        parser = self._parser_with_macro({
+            "dev start": ["open terminal", "git status"],
+        })
+        p = parser.plan("dev start", platform="windows")
+        for step in p["steps"]:
+            for key in ("phrase", "command", "action", "target"):
+                self.assertIn(key, step, f"Step missing key '{key}'")
+
+    def test_macro_step_targets_platform_specific(self):
+        """Steps inside a macro carry the correct per-platform targets."""
+        parser = self._parser_with_macro({
+            "morning routine": ["open chrome", "open discord"],
+        })
+        p_win = parser.plan("morning routine", platform="windows")
+        p_mac = parser.plan("morning routine", platform="macos")
+        # open chrome step target differs between windows and macos
+        chrome_win = p_win["steps"][0]["target"]
+        chrome_mac = p_mac["steps"][0]["target"]
+        self.assertNotEqual(chrome_win, chrome_mac)
+
+
+class TestPlanProjectCommand(unittest.TestCase):
+    """plan() for project shortcuts returns action=project."""
+
+    def test_project_action(self):
+        parser = CommandParser(
+            _make_config(projects={"myapp": "~/repos/myapp"}),
+            dry_run=True,
+        )
+        p = parser.plan("go to myapp", platform="linux")
+        self.assertIsNotNone(p)
+        self.assertEqual(p["action"], "project")
+        self.assertIn("myapp", p["target"])
+
+
+class TestPlanUnknown(unittest.TestCase):
+    def test_unknown_phrase_returns_none(self):
+        parser = CommandParser(_make_config(), dry_run=True)
+        result = parser.plan("xyzzy totally unknown 99999")
+        self.assertIsNone(result)
+
+    def test_plan_returns_none_not_false(self):
+        parser = CommandParser(_make_config(), dry_run=True)
+        result = parser.plan("another unknown phrase")
+        self.assertIsNone(result)
+
+
+class TestTextDryRunJsonOutput(unittest.TestCase):
+    """--text --dry-run must print one JSON line per command."""
+
+    _MAIN = str(_ROOT / "main.py")
+
+    def _run(self, stdin_text: str):
+        import subprocess as _sp
+        return _sp.run(
+            [sys.executable, self._MAIN, "--text", "--dry-run"],
+            input=stdin_text,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=str(_ROOT),
+        )
+
+    def _json_lines(self, stdout: str):
+        """Extract all valid JSON lines from stdout (ignoring [SmartDesktop] prefix lines)."""
+        import json
+        lines = []
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    lines.append(json.loads(line))
+                except Exception:
+                    pass
+        return lines
+
+    def test_known_command_emits_json(self):
+        result = self._run("open chrome\n")
+        self.assertEqual(result.returncode, 0)
+        lines = self._json_lines(result.stdout)
+        self.assertEqual(len(lines), 1, f"Expected 1 JSON line, got: {lines}")
+        self.assertEqual(lines[0]["command"], "open chrome")
+        self.assertEqual(lines[0]["action"], "launch")
+
+    def test_unknown_command_emits_matched_null(self):
+        result = self._run("xyzzy totally unknown 99999\n")
+        self.assertEqual(result.returncode, 0)
+        lines = self._json_lines(result.stdout)
+        self.assertEqual(len(lines), 1)
+        self.assertIsNone(lines[0]["matched"])
+
+    def test_multiple_commands_emit_multiple_json_lines(self):
+        result = self._run("open chrome\ngit status\nminimise window\n")
+        self.assertEqual(result.returncode, 0)
+        lines = self._json_lines(result.stdout)
+        self.assertEqual(len(lines), 3)
+        actions = {l["command"] for l in lines}
+        self.assertIn("open chrome", actions)
+        self.assertIn("git status", actions)
+        self.assertIn("minimise window", actions)
+
+    def test_json_contains_required_keys(self):
+        result = self._run("open chrome\n")
+        self.assertEqual(result.returncode, 0)
+        lines = self._json_lines(result.stdout)
+        for key in ("phrase", "command", "action", "target", "platform"):
+            self.assertIn(key, lines[0], f"JSON missing key: {key}")
+
+
+# ==================================================================
+# Config.yaml macro step resolution (B/S-linked: substring matching)
+# ==================================================================
+
+class TestConfigMacroStepResolution(unittest.TestCase):
+    """
+    Every macro step in the real config.yaml must resolve to a known action
+    (not "unknown") when plan() uses the same substring matching as execute().
+
+    This proves that e.g. "run npm run dev" → command "run dev" → action "terminal".
+    """
+
+    def setUp(self):
+        import yaml
+        from pathlib import Path as _Path
+        config_path = _Path(__file__).resolve().parent.parent / "config.yaml"
+        with open(config_path, "r", encoding="utf-8") as fh:
+            config = yaml.safe_load(fh) or {}
+        self.parser = CommandParser(config, dry_run=True)
+        self.macros = config.get("commands", {}).get("macros") or {}
+
+    def test_all_config_macro_steps_have_known_action(self):
+        """No macro step in config.yaml should produce action='unknown'."""
+        for macro_name, steps in self.macros.items():
+            plan = self.parser.plan(macro_name, platform="linux")
+            self.assertIsNotNone(plan, f"Macro '{macro_name}' not matched")
+            self.assertEqual(plan["action"], "macro",
+                             f"Macro '{macro_name}' has action={plan['action']!r}")
+            for step_plan in plan["steps"]:
+                self.assertNotEqual(
+                    step_plan["action"], "unknown",
+                    f"Macro '{macro_name}' step '{step_plan['phrase']}' "
+                    f"resolved to action='unknown' (command={step_plan['command']!r})"
+                )
+
+    def test_start_dev_step_run_npm_run_dev_resolves_to_terminal(self):
+        """'run npm run dev' must resolve via substring match to 'run dev' (terminal)."""
+        plan = self.parser.plan("start dev", platform="linux")
+        self.assertIsNotNone(plan)
+        # Find the step whose original phrase is "run npm run dev"
+        run_step = next(
+            (s for s in plan["steps"] if "npm run dev" in s["phrase"]), None
+        )
+        self.assertIsNotNone(run_step, "No step for 'run npm run dev' in start dev macro")
+        self.assertEqual(run_step["action"], "terminal",
+                         f"Expected terminal, got {run_step['action']!r}")
+        self.assertEqual(run_step["target"], "npm run dev")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

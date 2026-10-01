@@ -185,9 +185,8 @@
       const ul = document.getElementById('cmd-list');
       if (!items.length) { ul.innerHTML = '<li style="color:#6e7681">No results.</li>'; return; }
       ul.innerHTML = items.map(c => {
-        const hint = c.platforms && c.platforms[selectedPlatform]
-          ? c.platforms[selectedPlatform]
-          : '';
+        const plan = c.platforms && c.platforms[selectedPlatform];
+        const hint = plan ? (plan.target || plan.action || '') : '';
         return `<li onclick="fillAndParse('${escHtml(c.phrase)}')">
           <span class="phrase">${escHtml(c.phrase)}</span>
           <span class="platform-hint">${escHtml(hint)}</span>
@@ -236,9 +235,8 @@
         box.innerHTML = `<div class="result-unmatched">❌ No command matched for "<em>${escHtml(data.input)}</em>"</div>`;
         return;
       }
-      const platformAction = (data.platforms && data.platforms[selectedPlatform])
-        ? data.platforms[selectedPlatform]
-        : data.action || '';
+      const plan = (data.platforms && data.platforms[selectedPlatform]) || data.action || {};
+      const platformAction = plan ? (plan.target || plan.action || JSON.stringify(plan)) : '';
       const allPlatforms = data.platforms ? data.platforms : {};
       box.innerHTML = `
         <div class="result-matched">✅ Matched: <strong>${escHtml(data.matched)}</strong></div>

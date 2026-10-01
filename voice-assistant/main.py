@@ -29,6 +29,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -125,7 +126,9 @@ def _run_text_mode(config: dict, dry_run: bool) -> None:
     """
     Read command phrases from stdin, one per line, and execute them.
 
-    When *dry_run* is True the commands are parsed but no OS action is taken.
+    When *dry_run* is True the commands are parsed and each plan is printed as
+    one line of JSON on stdout (unknown phrase: ``{"phrase": ..., "matched": null}``).
+    No OS action is performed.
     """
     # Audio/ML imports are intentionally NOT done here — text mode must work
     # without pyaudio, pvporcupine, or faster-whisper installed.
@@ -157,9 +160,17 @@ def _run_text_mode(config: dict, dry_run: bool) -> None:
             if not phrase:
                 continue
             _info(f"Command: \"{phrase}\"")
-            result = parser.execute(phrase)
-            if not result:
-                _warn(f"Command not recognised: \"{phrase}\"")
+            if dry_run:
+                plan = parser.plan(phrase)
+                if plan is None:
+                    print(json.dumps({"phrase": phrase, "matched": None}), flush=True)
+                    _warn(f"Command not recognised: \"{phrase}\"")
+                else:
+                    print(json.dumps(plan), flush=True)
+            else:
+                result = parser.execute(phrase)
+                if not result:
+                    _warn(f"Command not recognised: \"{phrase}\"")
     except KeyboardInterrupt:
         pass
 

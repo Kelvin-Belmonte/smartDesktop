@@ -47,7 +47,7 @@ sys.modules["pygetwindow"].getActiveWindow = _mock.MagicMock(return_value=None) 
 # ---------------------------------------------------------------------------
 # Now import the project code and FastAPI
 # ---------------------------------------------------------------------------
-import platform
+import platform as _platform
 
 import yaml
 from fastapi import FastAPI, HTTPException
@@ -55,7 +55,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from commands import CommandParser
+from commands import CommandParser, _resolve_os
 
 # ---------------------------------------------------------------------------
 # Build the parser — dry_run=True is HARDCODED and cannot be overridden
@@ -68,60 +68,20 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _fh:
 # SAFETY: dry_run is always True — no OS action can ever be triggered.
 _PARSER = CommandParser(_CONFIG, dry_run=True)
 
-# ---------------------------------------------------------------------------
-# Command catalog helper
-# ---------------------------------------------------------------------------
-_OS_NAME = platform.system()  # "Windows" | "Darwin" | "Linux"
-
-# Map of phrase → what the action does on each platform (informational only).
-_PLATFORM_NOTES: dict[str, dict[str, str]] = {
-    "open chrome":       {"windows": "start chrome", "macos": "open -a 'Google Chrome'", "linux": "google-chrome"},
-    "open firefox":      {"windows": "start firefox", "macos": "open -a Firefox", "linux": "firefox"},
-    "open terminal":     {"windows": "start cmd", "macos": "open -a Terminal", "linux": "gnome-terminal / xterm"},
-    "open vscode":       {"windows": "code", "macos": "code", "linux": "code"},
-    "open file manager": {"windows": "explorer", "macos": "open -a Finder", "linux": "xdg-open ."},
-    "open calculator":   {"windows": "calc", "macos": "open -a Calculator", "linux": "gnome-calculator"},
-    "open spotify":      {"windows": "Spotify.exe / start spotify", "macos": "open -a Spotify", "linux": "spotify"},
-    "open discord":      {"windows": "start discord", "macos": "open -a Discord", "linux": "discord"},
-    "open slack":        {"windows": "start slack", "macos": "open -a Slack", "linux": "slack"},
-    "play liked songs":  {"windows": "start spotify:collection", "macos": "open spotify:collection", "linux": "xdg-open spotify:collection"},
-    "git status":        {"windows": "cmd /K git status", "macos": "Terminal: git status", "linux": "bash -c git status"},
-    "git pull":          {"windows": "cmd /K git pull", "macos": "Terminal: git pull", "linux": "bash -c git pull"},
-    "run dev":           {"windows": "cmd /K npm run dev", "macos": "Terminal: npm run dev", "linux": "bash -c npm run dev"},
-    "run tests":         {"windows": "cmd /K pytest", "macos": "Terminal: pytest", "linux": "bash -c pytest"},
-    "minimise window":   {"windows": "pygetwindow minimize()", "macos": "pygetwindow minimize()", "linux": "pygetwindow minimize()"},
-    "snap left":         {"windows": "Win+Left hotkey", "macos": "not supported", "linux": "not supported"},
-    "snap right":        {"windows": "Win+Right hotkey", "macos": "not supported", "linux": "not supported"},
-    "swap monitors":     {"windows": "rotate windows across monitors", "macos": "not supported", "linux": "not supported"},
-}
+_PLATFORMS = ("windows", "macos", "linux")
 
 
-def _describe_command(phrase: str) -> dict:
-    """Return a dict describing what *phrase* does, per platform."""
-    notes = _PLATFORM_NOTES.get(phrase, {})
-    # Infer a generic description if no per-platform note is registered
-    if not notes:
-        if phrase.startswith("go to "):
-            project = phrase[len("go to "):]
-            cmd = f"cd <{project}> && code ."
-            notes = {"windows": cmd, "macos": cmd, "linux": cmd}
-        elif phrase.startswith("open "):
-            app = phrase[len("open "):]
-            notes = {"windows": f"launch {app}", "macos": f"open -a {app}", "linux": app}
-        else:
-            notes = {"windows": phrase, "macos": phrase, "linux": phrase}
-    return notes
+def _plans_for(phrase: str) -> dict:
+    """Return {windows: plan, macos: plan, linux: plan} for *phrase*."""
+    return {plat: _PARSER.plan(phrase, platform=plat) for plat in _PLATFORMS}
 
 
 def _build_catalog() -> list[dict]:
     """Return the full command catalog as a list of dicts."""
-    catalog = []
-    for phrase in _PARSER.registered_commands:
-        catalog.append({
-            "phrase": phrase,
-            "platforms": _describe_command(phrase),
-        })
-    return catalog
+    return [
+        {"phrase": phrase, "platforms": _plans_for(phrase)}
+        for phrase in _PARSER.registered_commands
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +124,7 @@ async def parse_command(req: ParseRequest) -> JSONResponse:
         raise HTTPException(status_code=400, detail="text must not be empty")
 
     phrase_stripped = _PARSER._strip_prefix(req.text.strip())
-    handler, matched = _PARSER._match(phrase_stripped)
+    _, matched = _PARSER._match(phrase_stripped)
 
     if matched is None:
         return JSONResponse(
@@ -176,18 +136,18 @@ async def parse_command(req: ParseRequest) -> JSONResponse:
             }
         )
 
-    platforms = _describe_command(matched)
-    current_platform = {
-        "Windows": "windows",
-        "Darwin": "macos",
-        "Linux": "linux",
-    }.get(_OS_NAME, _OS_NAME.lower())
+    # Build per-platform plans from the parser (single source of truth).
+    platforms = _plans_for(req.text.strip())
+
+    # "action" = the plan for the current server OS.
+    current_platform = _resolve_os(None)  # returns "windows"/"macos"/"linux"
+    action = platforms.get(current_platform)
 
     return JSONResponse(
         {
             "input": req.text,
             "matched": matched,
-            "action": platforms.get(current_platform, matched),
+            "action": action,
             "platforms": platforms,
             "dry_run": True,
         }

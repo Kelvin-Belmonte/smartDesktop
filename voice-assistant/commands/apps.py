@@ -18,6 +18,109 @@ logger = logging.getLogger(__name__)
 # Detect the current operating system
 _OS = platform.system()  # "Windows", "Darwin" (macOS), or "Linux"
 
+# ---------------------------------------------------------------------------
+# Platform-keyed target data (single source of truth for both execution and plan)
+# ---------------------------------------------------------------------------
+
+# Maps platform.system() key → app target string used by _open_app.
+# "Linux" entries use the first candidate from the emulator list; plan() uses the same.
+_APP_TARGETS: Dict[str, Dict[str, str]] = {
+    "open chrome": {
+        "Windows": "start chrome",
+        "Darwin": "Google Chrome",
+        "Linux": "google-chrome",
+    },
+    "open firefox": {
+        "Windows": "start firefox",
+        "Darwin": "Firefox",
+        "Linux": "firefox",
+    },
+    "open terminal": {
+        "Windows": "start cmd",
+        "Darwin": "Terminal",
+        "Linux": "gnome-terminal",  # first candidate; runtime falls back if absent
+    },
+    "open vscode": {
+        "Windows": "code",
+        "Darwin": "code",
+        "Linux": "code",
+    },
+    "open file manager": {
+        "Windows": "explorer",
+        "Darwin": "Finder",
+        "Linux": "xdg-open .",
+    },
+    "open calculator": {
+        "Windows": "calc",
+        "Darwin": "Calculator",
+        "Linux": "gnome-calculator",
+    },
+    "open spotify": {
+        "Windows": "start spotify",   # plan uses fallback; runtime tries known paths first
+        "Darwin": "Spotify",
+        "Linux": "spotify",
+    },
+    "play liked songs": {
+        "Windows": "start spotify:collection",
+        "Darwin": "open spotify:collection",
+        "Linux": "xdg-open spotify:collection",
+    },
+    "open discord": {
+        "Windows": "start discord",
+        "Darwin": "Discord",
+        "Linux": "discord",
+    },
+    "open slack": {
+        "Windows": "start slack",
+        "Darwin": "Slack",
+        "Linux": "slack",
+    },
+    "open new window": {  # alias for chrome
+        "Windows": "start chrome",
+        "Darwin": "Google Chrome",
+        "Linux": "google-chrome",
+    },
+}
+# Aliases that share target data with another entry
+_APP_ALIASES: Dict[str, str] = {
+    "open vs code":        "open vscode",
+    "open code":           "open vscode",
+    "open explorer":       "open file manager",
+    "play my liked songs": "play liked songs",
+    "spotify liked songs": "play liked songs",
+    "open liked songs":    "play liked songs",
+}
+
+
+# Maps canonical lowercase os key → _APP_TARGETS key
+_OS_TO_TARGETS_KEY = {"windows": "Windows", "macos": "Darwin", "linux": "Linux"}
+
+
+def _app_target(phrase: str, os_name: str) -> str:
+    """Return the launch target for *phrase* on *os_name* (lowercase: windows/macos/linux)."""
+    canonical = _APP_ALIASES.get(phrase, phrase)
+    targets = _APP_TARGETS.get(canonical, {})
+    sys_key = _OS_TO_TARGETS_KEY.get(os_name, "Linux")
+    return targets.get(sys_key, targets.get("Linux", ""))
+
+
+def plan_app_command(phrase: str, os_name: str) -> Optional[dict]:
+    """
+    Return a plan dict for *phrase* as an app-launch command on *os_name*.
+
+    *os_name* is the canonical lowercase key: ``"windows"``, ``"macos"``, or ``"linux"``.
+    Returns None if *phrase* is not a known app command.
+    """
+    canonical = _APP_ALIASES.get(phrase, phrase)
+    if canonical not in _APP_TARGETS:
+        return None
+    target = _app_target(phrase, os_name)
+    return {
+        "action": "launch",
+        "target": target,
+        "platform": os_name,
+    }
+
 
 def _open_app(app_path: str, dry_run: bool = False) -> bool:
     """
@@ -77,21 +180,13 @@ def _open_app(app_path: str, dry_run: bool = False) -> bool:
 
 def open_chrome(dry_run: bool = False) -> bool:
     """Open Google Chrome."""
-    paths = {
-        "Windows": "start chrome",
-        "Darwin": "Google Chrome",
-        "Linux": "google-chrome",
-    }
+    paths = _APP_TARGETS["open chrome"]
     return _open_app(paths.get(_OS, "chrome"), dry_run=dry_run)
 
 
 def open_firefox(dry_run: bool = False) -> bool:
     """Open Mozilla Firefox."""
-    paths = {
-        "Windows": "start firefox",
-        "Darwin": "Firefox",
-        "Linux": "firefox",
-    }
+    paths = _APP_TARGETS["open firefox"]
     return _open_app(paths.get(_OS, "firefox"), dry_run=dry_run)
 
 
@@ -104,10 +199,7 @@ def open_terminal(dry_run: bool = False) -> bool:
             if shutil.which(term):
                 return _open_app(term) if not dry_run else _open_app(term, dry_run=True)
         return _open_app("xterm") if not dry_run else _open_app("xterm", dry_run=True)
-    paths = {
-        "Windows": "start cmd",
-        "Darwin": "Terminal",
-    }
+    paths = _APP_TARGETS["open terminal"]
     target = paths.get(_OS, "xterm")
     return _open_app(target) if not dry_run else _open_app(target, dry_run=True)
 
@@ -119,21 +211,13 @@ def open_vscode(dry_run: bool = False) -> bool:
 
 def open_file_manager(dry_run: bool = False) -> bool:
     """Open the system file manager."""
-    paths = {
-        "Windows": "explorer",
-        "Darwin": "Finder",
-        "Linux": "xdg-open .",
-    }
+    paths = _APP_TARGETS["open file manager"]
     return _open_app(paths.get(_OS, "xdg-open ."), dry_run=dry_run)
 
 
 def open_calculator(dry_run: bool = False) -> bool:
     """Open the system calculator."""
-    paths = {
-        "Windows": "calc",
-        "Darwin": "Calculator",
-        "Linux": "gnome-calculator",
-    }
+    paths = _APP_TARGETS["open calculator"]
     return _open_app(paths.get(_OS, "gnome-calculator"), dry_run=dry_run)
 
 
@@ -152,40 +236,25 @@ def open_spotify(dry_run: bool = False) -> bool:
         # Fall back: works when Spotify is registered as a URI handler or is
         # findable on PATH.
         return _open_app("start spotify", dry_run=dry_run)
-    paths = {
-        "Darwin": "Spotify",
-        "Linux": "spotify",
-    }
+    paths = _APP_TARGETS["open spotify"]
     return _open_app(paths.get(_OS, "spotify"), dry_run=dry_run)
 
 
 def play_spotify_liked_songs(dry_run: bool = False) -> bool:
     """Open Spotify and navigate to the liked-songs collection."""
-    uris = {
-        "Windows": "start spotify:collection",
-        "Darwin": "open spotify:collection",
-        "Linux": "xdg-open spotify:collection",
-    }
+    uris = _APP_TARGETS["play liked songs"]
     return _open_app(uris.get(_OS, "xdg-open spotify:collection"), dry_run=dry_run)
 
 
 def open_discord(dry_run: bool = False) -> bool:
     """Open Discord."""
-    paths = {
-        "Windows": "start discord",
-        "Darwin": "Discord",
-        "Linux": "discord",
-    }
+    paths = _APP_TARGETS["open discord"]
     return _open_app(paths.get(_OS, "discord"), dry_run=dry_run)
 
 
 def open_slack(dry_run: bool = False) -> bool:
     """Open Slack."""
-    paths = {
-        "Windows": "start slack",
-        "Darwin": "Slack",
-        "Linux": "slack",
-    }
+    paths = _APP_TARGETS["open slack"]
     return _open_app(paths.get(_OS, "slack"), dry_run=dry_run)
 
 
