@@ -2,6 +2,53 @@
 
 A local, offline voice automation assistant for developer workflows and desktop control — similar to Siri or Alexa but optimised for power users and developers.
 
+> **IBM Bob Hackathon, Theme 1: Explore, Fix, and Build.** IBM Bob took an unaudited voice assistant,
+> one that turns speech into shell commands, and documented it, audited it, proved its bugs with
+> failing tests, fixed them, hardened it and added new features. Every step is recorded in a
+> transcript in [`docs/bob-sessions/`](docs/bob-sessions/).
+>
+> **▶ Try it in the browser:** https://smartdesktop-playground.onrender.com. Type or say "open chrome",
+> "start dev" or "snap left" to see what the assistant *would* do on Windows, macOS and Linux. The
+> server always runs in dry-run mode. (Free tier: the first load can take about 30 s.)
+
+## IBM Bob hackathon entry
+
+| | Before (tag `baseline-before`, `992e4dc`) | After (`main`) |
+|---|---|---|
+| Functional bugs | 7 found and proven by Bob (B-01 to B-07) | 7 fixed, each with a regression test |
+| Security findings | 9 (S-01 to S-09), 2 critical: AppleScript and `cmd` injection | 9 addressed: no `shell=True`, confirmation before destructive commands, log redaction |
+| bandit | 5 High, 12 Low | **0 High**, 18 Low |
+| Tests | 45 (one could never fail; paths hard-coded to one machine) | **121** voice-assistant + **42** playground |
+| CI | 1 job (Ubuntu) | **8 jobs**: Ubuntu, macOS and Windows × Python 3.10 and 3.12, plus playground and docs |
+| Runs without a mic | ❌ `--list-commands` crashed without PyAudio | ✅ `--text`, `--dry-run` (JSON action plans), web playground |
+| README OS claims | "Cross-platform" | Corrected to match the code |
+
+### How IBM Bob was used
+
+Bob ran 9 tasks from [`BOB_TASKS.md`](BOB_TASKS.md), plus 3 follow-ups, in four custom modes from
+[`.bob/custom_modes.yaml`](.bob/custom_modes.yaml). Each mode may edit only the files its task
+owns, and each task ends with a check that must pass. Across the 12 prompts Bob made **436 tool
+calls** (168 file reads, 133 commands run, 104 file edits).
+
+| Mode | Tasks | What Bob produced |
+|---|---|---|
+| 🔎 SD Analyst | T1, T9 | [Architecture, command catalog and OS matrix](docs/baseline/overview.md); [traceability and before/after](docs/after/improvements.md) |
+| 🛡️ SD Auditor | T2 | [Security audit](docs/baseline/security-audit.md): S-01 to S-09, bandit and pip-audit |
+| 🧪 SD Tester | T3, T8 | [Known bugs](docs/baseline/known-bugs.md), with each bug proven by an `xfail(strict=True)` test *before* any fix; portable tests; the CI matrix |
+| 🛠️ SD Developer | T4–T7 | Bug fixes, dry-run/text mode with `CommandParser.plan()`, the web playground, the safety layer |
+
+**Bob's mistakes, kept in the record.** In a T5 follow-up, Bob's file search came back empty, so it
+rebuilt the playground from scratch and dropped 29 of its 30 tests. It was told to redo the work,
+restored the playground from git and kept every original test. Later, CI on Python 3.10/3.12 caught
+a missing `Optional` import that Python 3.14 had hidden locally, and Bob fixed it. Both are in
+[`05-dry-run-text-mode.md`](docs/bob-sessions/05-dry-run-text-mode.md).
+
+**Who did what.** IBM Bob did all of the analysis, the audit, the tests, the fixes and the
+features. Claude Code built only the guardrails ([`AGENTS.md`](AGENTS.md), `.bob/`,
+[`scripts/check_docs.py`](scripts/check_docs.py), the doc templates and the baseline CI),
+reviewed Bob's output between tasks, and packaged this submission
+([`docs/submission.md`](docs/submission.md)).
+
 ## Overview
 
 ```
