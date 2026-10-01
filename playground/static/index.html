@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartDesktop Playground</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+    h1 { font-size: 2rem; color: #58a6ff; margin-bottom: .25rem; }
+    .subtitle { color: #8b949e; margin-bottom: 2rem; font-size: .95rem; }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 720px;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1.1rem; color: #58a6ff; margin-bottom: 1rem; }
+    .input-row {
+      display: flex;
+      gap: .5rem;
+    }
+    #phrase-input {
+      flex: 1;
+      padding: .6rem .9rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: 1rem;
+    }
+    #phrase-input:focus { outline: none; border-color: #58a6ff; }
+    button {
+      padding: .6rem 1.1rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: .95rem;
+      transition: background .15s;
+    }
+    #parse-btn { background: #238636; color: #fff; }
+    #parse-btn:hover { background: #2ea043; }
+    #mic-btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+    #mic-btn.listening { background: #da3633; color: #fff; }
+    #mic-btn.hidden { display: none; }
+
+    .platform-row {
+      display: flex;
+      gap: .5rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+    .platform-btn {
+      padding: .35rem .85rem;
+      border-radius: 20px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #8b949e;
+      font-size: .85rem;
+      cursor: pointer;
+    }
+    .platform-btn.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+
+    #result-box {
+      margin-top: 1rem;
+      min-height: 3rem;
+    }
+    .result-matched {
+      font-size: 1.1rem;
+      color: #3fb950;
+      margin-bottom: .5rem;
+    }
+    .result-unmatched { color: #f85149; }
+    .result-action {
+      font-size: .9rem;
+      color: #8b949e;
+      margin-bottom: .5rem;
+    }
+    pre {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: .75rem 1rem;
+      font-size: .82rem;
+      overflow-x: auto;
+      color: #e6edf3;
+    }
+
+    #search-input {
+      width: 100%;
+      padding: .5rem .9rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #c9d1d9;
+      font-size: .9rem;
+      margin-bottom: 1rem;
+    }
+    #search-input:focus { outline: none; border-color: #58a6ff; }
+    #cmd-list { list-style: none; max-height: 300px; overflow-y: auto; }
+    #cmd-list li {
+      padding: .4rem .6rem;
+      border-radius: 4px;
+      font-size: .88rem;
+      cursor: pointer;
+      color: #c9d1d9;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #cmd-list li:hover { background: #21262d; }
+    #cmd-list li .phrase { color: #58a6ff; }
+    #cmd-list li .platform-hint { font-size: .75rem; color: #6e7681; }
+    .badge {
+      display: inline-block;
+      padding: .1rem .5rem;
+      border-radius: 12px;
+      font-size: .7rem;
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #8b949e;
+      margin-left: .4rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 SmartDesktop Playground</h1>
+  <p class="subtitle">Try voice commands in the browser — always dry-run, no OS actions.</p>
+
+  <!-- Command input -->
+  <div class="card">
+    <h2>Try a command</h2>
+    <div class="input-row">
+      <input id="phrase-input" type="text" placeholder='e.g. "open chrome" or "jarvis git status"' />
+      <button id="parse-btn" onclick="parsePhrase()">Parse</button>
+      <button id="mic-btn" class="hidden" onclick="toggleMic()" title="Use microphone">🎤</button>
+    </div>
+
+    <div class="platform-row">
+      <span style="color:#8b949e;font-size:.85rem;align-self:center;">Show action for:</span>
+      <button class="platform-btn" id="btn-windows" onclick="selectPlatform('windows')">Windows</button>
+      <button class="platform-btn active" id="btn-macos" onclick="selectPlatform('macos')">macOS</button>
+      <button class="platform-btn" id="btn-linux" onclick="selectPlatform('linux')">Linux</button>
+    </div>
+
+    <div id="result-box"></div>
+  </div>
+
+  <!-- Command catalog -->
+  <div class="card">
+    <h2>Command catalog</h2>
+    <input id="search-input" type="text" placeholder="Search commands…" oninput="filterCatalog()" />
+    <ul id="cmd-list"><li style="color:#6e7681">Loading…</li></ul>
+  </div>
+
+  <script>
+    let catalog = [];
+    let selectedPlatform = 'macos';
+
+    // ---------- bootstrap ----------
+    async function loadCatalog() {
+      try {
+        const res = await fetch('/api/commands');
+        catalog = await res.json();
+        renderCatalog(catalog);
+      } catch (e) {
+        document.getElementById('cmd-list').innerHTML =
+          '<li style="color:#f85149">Failed to load catalog.</li>';
+      }
+    }
+
+    function renderCatalog(items) {
+      const ul = document.getElementById('cmd-list');
+      if (!items.length) { ul.innerHTML = '<li style="color:#6e7681">No results.</li>'; return; }
+      ul.innerHTML = items.map(c => {
+        const hint = c.platforms && c.platforms[selectedPlatform]
+          ? c.platforms[selectedPlatform]
+          : '';
+        return `<li onclick="fillAndParse('${escHtml(c.phrase)}')">
+          <span class="phrase">${escHtml(c.phrase)}</span>
+          <span class="platform-hint">${escHtml(hint)}</span>
+        </li>`;
+      }).join('');
+    }
+
+    function filterCatalog() {
+      const q = document.getElementById('search-input').value.toLowerCase();
+      renderCatalog(catalog.filter(c => c.phrase.includes(q)));
+    }
+
+    function selectPlatform(p) {
+      selectedPlatform = p;
+      ['windows','macos','linux'].forEach(pl => {
+        document.getElementById('btn-' + pl).classList.toggle('active', pl === p);
+      });
+      filterCatalog();
+      // Re-render result if present
+      const inp = document.getElementById('phrase-input').value;
+      if (inp.trim()) parsePhrase();
+    }
+
+    // ---------- parse ----------
+    async function parsePhrase() {
+      const text = document.getElementById('phrase-input').value.trim();
+      if (!text) return;
+      const box = document.getElementById('result-box');
+      box.innerHTML = '<span style="color:#6e7681">Parsing…</span>';
+      try {
+        const res = await fetch('/api/parse', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text})
+        });
+        const data = await res.json();
+        renderResult(data);
+      } catch (e) {
+        box.innerHTML = '<span style="color:#f85149">Request failed.</span>';
+      }
+    }
+
+    function renderResult(data) {
+      const box = document.getElementById('result-box');
+      if (!data.matched) {
+        box.innerHTML = `<div class="result-unmatched">❌ No command matched for "<em>${escHtml(data.input)}</em>"</div>`;
+        return;
+      }
+      const platformAction = (data.platforms && data.platforms[selectedPlatform])
+        ? data.platforms[selectedPlatform]
+        : data.action || '';
+      const allPlatforms = data.platforms ? data.platforms : {};
+      box.innerHTML = `
+        <div class="result-matched">✅ Matched: <strong>${escHtml(data.matched)}</strong></div>
+        <div class="result-action">Action on <em>${escHtml(selectedPlatform)}</em>: <code>${escHtml(platformAction)}</code></div>
+        <pre>${escHtml(JSON.stringify({...data, platforms: allPlatforms}, null, 2))}</pre>
+      `;
+    }
+
+    function fillAndParse(phrase) {
+      document.getElementById('phrase-input').value = phrase;
+      parsePhrase();
+    }
+
+    // ---------- Web Speech API ----------
+    let recognition = null;
+    function setupMic() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) return;
+      document.getElementById('mic-btn').classList.remove('hidden');
+      recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.onresult = (e) => {
+        const transcript = e.results[0][0].transcript;
+        document.getElementById('phrase-input').value = transcript;
+        parsePhrase();
+      };
+      recognition.onend = () => {
+        document.getElementById('mic-btn').classList.remove('listening');
+        document.getElementById('mic-btn').textContent = '🎤';
+      };
+    }
+
+    function toggleMic() {
+      if (!recognition) return;
+      const btn = document.getElementById('mic-btn');
+      if (btn.classList.contains('listening')) {
+        recognition.stop();
+      } else {
+        btn.classList.add('listening');
+        btn.textContent = '⏹';
+        recognition.start();
+      }
+    }
+
+    // ---------- keyboard ----------
+    document.getElementById('phrase-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') parsePhrase();
+    });
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    // ---------- init ----------
+    setupMic();
+    loadCatalog();
+
+    // Auto-detect platform for default selection
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('win')) selectPlatform('windows');
+    else if (ua.includes('linux')) selectPlatform('linux');
+    // else keep macos (default)
+  </script>
+</body>
+</html>

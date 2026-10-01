@@ -36,6 +36,8 @@ speech:
 commands:
   # Prefix to strip from commands (the wake word itself)
   prefix: jarvis
+  # Require confirmation for destructive / high-impact actions (closing windows, shell commands, macros)
+  confirm_destructive: true
   # Custom app shortcuts - add your own here
   apps:
     league: "C:/Riot Games/LeagueClient.exe"

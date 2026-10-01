@@ -229,7 +229,10 @@ class SpeechRecognizer:
             return None
 
         transcript = " ".join(text_parts).strip().lower()
-        logger.info("Transcription: '%s'", transcript)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Transcription: '%s'", transcript)
+        else:
+            logger.info("Transcription completed (redacted at INFO level).")
         return transcript
 
     # ------------------------------------------------------------------
@@ -237,14 +240,16 @@ class SpeechRecognizer:
     # ------------------------------------------------------------------
 
     def _reload_on_cpu(self) -> None:
-        """Reinitialise the Whisper model on CPU (int8) as a safe fallback."""
+        """Reinitialise the Whisper model on CPU using int8, a compute type
+        that is always supported regardless of the original GPU compute_type."""
+        cpu_compute_type = "int8"
         logger.info(
             "Loading Faster-Whisper model '%s' on device 'cpu' (%s)...",
             self._model_size,
-            self._compute_type,
+            cpu_compute_type,
         )
         self._model = WhisperModel(
-            self._model_size, device="cpu", compute_type=self._compute_type
+            self._model_size, device="cpu", compute_type=cpu_compute_type
         )
         logger.info("Faster-Whisper model reloaded on CPU.")
 

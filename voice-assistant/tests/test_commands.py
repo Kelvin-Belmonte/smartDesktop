@@ -35,6 +35,7 @@ _stub_module("pyautogui")
 gw_mod = _stub_module("pygetwindow")
 gw_mod.getWindowsWithTitle = MagicMock(return_value=[])
 gw_mod.getAllWindows = MagicMock(return_value=[])
+gw_mod.getActiveWindow = MagicMock(return_value=None)
 
 # sounddevice / colorama stubs
 _stub_module("sounddevice")
@@ -105,9 +106,9 @@ class TestOpenApp(unittest.TestCase):
     @patch("commands.apps.os.startfile", create=True)
     def test_windows_uses_startfile_for_existing_path(self, mock_startfile, mock_isfile):
         """On Windows, _open_app must use os.startfile for a path that exists."""
-        result = _open_app(r"C:\Users\mario\AppData\Roaming\Spotify\Spotify.exe")
+        result = _open_app(r"C:\Users\TestUser\AppData\Roaming\Spotify\Spotify.exe")
         mock_startfile.assert_called_once_with(
-            r"C:\Users\mario\AppData\Roaming\Spotify\Spotify.exe"
+            r"C:\Users\TestUser\AppData\Roaming\Spotify\Spotify.exe"
         )
         self.assertTrue(result)
 
@@ -116,9 +117,9 @@ class TestOpenApp(unittest.TestCase):
     @patch("commands.apps.os.startfile", create=True)
     def test_windows_normalises_forward_slashes(self, mock_startfile, mock_isfile):
         """Forward slashes in the path should be converted to backslashes."""
-        result = _open_app("C:/Users/mario/AppData/Roaming/Spotify/Spotify.exe")
+        result = _open_app("C:/Users/TestUser/AppData/Roaming/Spotify/Spotify.exe")
         mock_startfile.assert_called_once_with(
-            r"C:\Users\mario\AppData\Roaming\Spotify\Spotify.exe"
+            r"C:\Users\TestUser\AppData\Roaming\Spotify\Spotify.exe"
         )
         self.assertTrue(result)
 
@@ -126,9 +127,9 @@ class TestOpenApp(unittest.TestCase):
     @patch("commands.apps.os.path.isfile", return_value=False)
     @patch("commands.apps.subprocess.Popen")
     def test_windows_shell_fallback_when_path_not_found(self, mock_popen, mock_isfile):
-        """When the path doesn't exist, the shell=True fallback should be used."""
+        """When the path doesn't exist, argument list fallback without shell=True should be used."""
         result = _open_app("start spotify")
-        mock_popen.assert_called_once_with("start spotify", shell=True)
+        mock_popen.assert_called_once_with(["start", "spotify"])
         self.assertTrue(result)
 
     @patch("commands.apps._OS", "Windows")
@@ -260,14 +261,37 @@ class TestGetMonitors(unittest.TestCase):
     @patch("commands.windows._OS", "Windows")
     def test_windows_returns_sorted_monitors(self):
         """_get_monitors must return monitors sorted left-to-right, top-to-bottom."""
-        # Verify the sort key used inside _get_monitors is correct by building
-        # the expected order independently (the ctypes callback is Windows-only
-        # and tested implicitly via TestSwapMonitors integration tests).
-        unsorted = [
-            {"left": 1920, "top": 0, "right": 3840, "bottom": 1080},
-            {"left": 0, "top": 0, "right": 1920, "bottom": 1080},
-        ]
-        result = sorted(unsorted, key=lambda m: (m["left"], m["top"]))
+        import ctypes
+
+        # Two fake RECT structs — right monitor first, left monitor second.
+        # Populated before the test so the callback can reference real data.
+        rect_right = ctypes.wintypes.RECT()
+        rect_right.left, rect_right.top, rect_right.right, rect_right.bottom = (
+            1920, 0, 3840, 1080,
+        )
+        rect_left = ctypes.wintypes.RECT()
+        rect_left.left, rect_left.top, rect_left.right, rect_left.bottom = (
+            0, 0, 1920, 1080,
+        )
+
+        rects = [rect_right, rect_left]
+
+        def _fake_enum(hdc, clip, proc, lp):
+            for r in rects:
+                proc(0, 0, ctypes.pointer(r), 0)
+
+        # WINFUNCTYPE and windll are Windows-only; use create=True so patch
+        # injects them on non-Windows platforms without raising AttributeError.
+        fake_windll = MagicMock()
+        fake_windll.user32.EnumDisplayMonitors.side_effect = _fake_enum
+
+        with patch("commands.windows.ctypes.WINFUNCTYPE",
+                   MagicMock(side_effect=lambda *a: lambda fn: fn),
+                   create=True):
+            with patch("commands.windows.ctypes.windll", fake_windll, create=True):
+                result = _get_monitors()
+
+        self.assertEqual(len(result), 2)
         self.assertEqual(result[0]["left"], 0)
         self.assertEqual(result[1]["left"], 1920)
 

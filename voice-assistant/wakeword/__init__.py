@@ -106,9 +106,9 @@ class WakeWordDetector:
                                 exc,
                                 exc_info=True,
                             )
-            except OSError as exc:
+            except Exception as exc:
                 if self._running:
-                    logger.error("Audio read error: %s", exc)
+                    logger.error("Wake word detection error: %s", exc, exc_info=True)
 
     def start(self) -> None:
         """Start the background wake word detection thread."""

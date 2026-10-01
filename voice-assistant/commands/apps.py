@@ -7,6 +7,8 @@ Handles voice commands that open applications.
 import logging
 import os
 import platform
+import shlex
+import shutil
 import subprocess
 import sys
 from typing import Dict, Optional
@@ -17,16 +19,21 @@ logger = logging.getLogger(__name__)
 _OS = platform.system()  # "Windows", "Darwin" (macOS), or "Linux"
 
 
-def _open_app(app_path: str) -> bool:
+def _open_app(app_path: str, dry_run: bool = False) -> bool:
     """
     Launch an application using the most appropriate method for the current OS.
 
     Args:
         app_path: Executable path, application name, or shell command string.
+        dry_run:  If True, log the intended action but perform no OS operation.
 
     Returns:
-        True if the process was started successfully, False otherwise.
+        True if the process was started successfully (or dry_run is True), False otherwise.
     """
+    if dry_run:
+        logger.info("[dry-run] Would launch application: %s", app_path)
+        return True
+
     try:
         if _OS == "Windows":
             # Normalise forward slashes so Windows can find the file.
@@ -40,19 +47,23 @@ def _open_app(app_path: str) -> bool:
                 # caught by the outer except block below.
                 os.startfile(normalized)
             else:
-                # Fall back to shell=True for built-in commands such as
-                # "start spotify", "calc", "explorer", or URI schemes like
-                # "start spotify:collection".
-                subprocess.Popen(app_path, shell=True)
+                # Parse into arguments to avoid shell=True
+                args = shlex.split(app_path, posix=False)
+                subprocess.Popen(args)
         elif _OS == "Darwin":
-            # macOS: prefer 'open' so .app bundles are handled correctly.
-            if app_path.endswith(".app") or "/" not in app_path:
+            # macOS: use 'open -a' only for bare application names (no slashes,
+            # no spaces/arguments) or explicit .app bundles without a path.
+            # Anything else (paths, commands with arguments) runs as argument list without shell=True.
+            bare_name = "/" not in app_path and " " not in app_path
+            if app_path.endswith(".app") or bare_name:
                 subprocess.Popen(["open", "-a", app_path])
             else:
-                subprocess.Popen(app_path, shell=True)
+                args = shlex.split(app_path)
+                subprocess.Popen(args)
         else:
-            # Linux / other POSIX
-            subprocess.Popen(app_path, shell=True)
+            # Linux / other POSIX: split arguments without shell=True
+            args = shlex.split(app_path)
+            subprocess.Popen(args)
         logger.info("Launched application: %s", app_path)
         return True
     except (OSError, ValueError) as exc:
@@ -64,62 +75,69 @@ def _open_app(app_path: str) -> bool:
 # Built-in command handlers
 # ---------------------------------------------------------------------------
 
-def open_chrome() -> bool:
+def open_chrome(dry_run: bool = False) -> bool:
     """Open Google Chrome."""
     paths = {
         "Windows": "start chrome",
         "Darwin": "Google Chrome",
         "Linux": "google-chrome",
     }
-    return _open_app(paths.get(_OS, "chrome"))
+    return _open_app(paths.get(_OS, "chrome"), dry_run=dry_run)
 
 
-def open_firefox() -> bool:
+def open_firefox(dry_run: bool = False) -> bool:
     """Open Mozilla Firefox."""
     paths = {
         "Windows": "start firefox",
         "Darwin": "Firefox",
         "Linux": "firefox",
     }
-    return _open_app(paths.get(_OS, "firefox"))
+    return _open_app(paths.get(_OS, "firefox"), dry_run=dry_run)
 
 
-def open_terminal() -> bool:
+def open_terminal(dry_run: bool = False) -> bool:
     """Open the system terminal / command prompt."""
+    if _OS == "Linux":
+        # Try emulators in the same order as _run_in_terminal so the choice
+        # is consistent.  Fall back to xterm only when nothing else is found.
+        for term in ["gnome-terminal", "xterm", "konsole", "x-terminal-emulator"]:
+            if shutil.which(term):
+                return _open_app(term) if not dry_run else _open_app(term, dry_run=True)
+        return _open_app("xterm") if not dry_run else _open_app("xterm", dry_run=True)
     paths = {
         "Windows": "start cmd",
         "Darwin": "Terminal",
-        "Linux": "x-terminal-emulator",
     }
-    return _open_app(paths.get(_OS, "xterm"))
+    target = paths.get(_OS, "xterm")
+    return _open_app(target) if not dry_run else _open_app(target, dry_run=True)
 
 
-def open_vscode() -> bool:
+def open_vscode(dry_run: bool = False) -> bool:
     """Open Visual Studio Code."""
-    return _open_app("code")
+    return _open_app("code", dry_run=dry_run)
 
 
-def open_file_manager() -> bool:
+def open_file_manager(dry_run: bool = False) -> bool:
     """Open the system file manager."""
     paths = {
         "Windows": "explorer",
         "Darwin": "Finder",
         "Linux": "xdg-open .",
     }
-    return _open_app(paths.get(_OS, "xdg-open ."))
+    return _open_app(paths.get(_OS, "xdg-open ."), dry_run=dry_run)
 
 
-def open_calculator() -> bool:
+def open_calculator(dry_run: bool = False) -> bool:
     """Open the system calculator."""
     paths = {
         "Windows": "calc",
         "Darwin": "Calculator",
         "Linux": "gnome-calculator",
     }
-    return _open_app(paths.get(_OS, "gnome-calculator"))
+    return _open_app(paths.get(_OS, "gnome-calculator"), dry_run=dry_run)
 
 
-def open_spotify() -> bool:
+def open_spotify(dry_run: bool = False) -> bool:
     """Open Spotify, trying known install locations before falling back to the
     'start' shell command so the app reliably launches on Windows regardless
     of whether Spotify was installed from the web or the Microsoft Store."""
@@ -130,52 +148,55 @@ def open_spotify() -> bool:
         ]
         for candidate in candidates:
             if os.path.isfile(candidate):
-                return _open_app(candidate)
+                return _open_app(candidate, dry_run=dry_run)
         # Fall back: works when Spotify is registered as a URI handler or is
         # findable on PATH.
-        return _open_app("start spotify")
+        return _open_app("start spotify", dry_run=dry_run)
     paths = {
         "Darwin": "Spotify",
         "Linux": "spotify",
     }
-    return _open_app(paths.get(_OS, "spotify"))
+    return _open_app(paths.get(_OS, "spotify"), dry_run=dry_run)
 
 
-def play_spotify_liked_songs() -> bool:
+def play_spotify_liked_songs(dry_run: bool = False) -> bool:
     """Open Spotify and navigate to the liked-songs collection."""
     uris = {
         "Windows": "start spotify:collection",
         "Darwin": "open spotify:collection",
         "Linux": "xdg-open spotify:collection",
     }
-    return _open_app(uris.get(_OS, "xdg-open spotify:collection"))
+    return _open_app(uris.get(_OS, "xdg-open spotify:collection"), dry_run=dry_run)
 
 
-def open_discord() -> bool:
+def open_discord(dry_run: bool = False) -> bool:
     """Open Discord."""
     paths = {
         "Windows": "start discord",
         "Darwin": "Discord",
         "Linux": "discord",
     }
-    return _open_app(paths.get(_OS, "discord"))
+    return _open_app(paths.get(_OS, "discord"), dry_run=dry_run)
 
 
-def open_slack() -> bool:
+def open_slack(dry_run: bool = False) -> bool:
     """Open Slack."""
     paths = {
         "Windows": "start slack",
         "Darwin": "Slack",
         "Linux": "slack",
     }
-    return _open_app(paths.get(_OS, "slack"))
+    return _open_app(paths.get(_OS, "slack"), dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
 # Factory: build command map from config
 # ---------------------------------------------------------------------------
 
-def build_app_commands(apps_config: Optional[Dict[str, str]] = None) -> Dict[str, callable]:
+def build_app_commands(
+    apps_config: Optional[Dict[str, str]] = None,
+    dry_run: bool = False,
+) -> Dict[str, callable]:
     """
     Return a mapping of command phrases to callable handlers.
 
@@ -184,37 +205,68 @@ def build_app_commands(apps_config: Optional[Dict[str, str]] = None) -> Dict[str
 
     Args:
         apps_config: Dict of {phrase: path/command} from the YAML config.
+        dry_run:     If True, all handlers will perform no OS action.
 
     Returns:
         Dict mapping lowercase command phrase → callable that launches the app.
     """
-    commands: Dict[str, callable] = {
-        "open chrome": open_chrome,
-        "open firefox": open_firefox,
-        "open terminal": open_terminal,
-        "open vscode": open_vscode,
-        "open vs code": open_vscode,
-        "open code": open_vscode,
-        "open file manager": open_file_manager,
-        "open explorer": open_file_manager,
-        "open calculator": open_calculator,
-        "open spotify": open_spotify,
-        "open discord": open_discord,
-        "open slack": open_slack,
-        "open new window": open_chrome,  # shortcut: new browser window
-        "play liked songs": play_spotify_liked_songs,
-        "play my liked songs": play_spotify_liked_songs,
-        "spotify liked songs": play_spotify_liked_songs,
-        "open liked songs": play_spotify_liked_songs,
-    }
+    if dry_run:
+        commands: Dict[str, callable] = {
+            "open chrome":       (lambda: open_chrome(dry_run=True)),
+            "open firefox":      (lambda: open_firefox(dry_run=True)),
+            "open terminal":     (lambda: open_terminal(dry_run=True)),
+            "open vscode":       (lambda: open_vscode(dry_run=True)),
+            "open vs code":      (lambda: open_vscode(dry_run=True)),
+            "open code":         (lambda: open_vscode(dry_run=True)),
+            "open file manager": (lambda: open_file_manager(dry_run=True)),
+            "open explorer":     (lambda: open_file_manager(dry_run=True)),
+            "open calculator":   (lambda: open_calculator(dry_run=True)),
+            "open spotify":      (lambda: open_spotify(dry_run=True)),
+            "open discord":      (lambda: open_discord(dry_run=True)),
+            "open slack":        (lambda: open_slack(dry_run=True)),
+            "open new window":   (lambda: open_chrome(dry_run=True)),
+            "play liked songs":        (lambda: play_spotify_liked_songs(dry_run=True)),
+            "play my liked songs":     (lambda: play_spotify_liked_songs(dry_run=True)),
+            "spotify liked songs":     (lambda: play_spotify_liked_songs(dry_run=True)),
+            "open liked songs":        (lambda: play_spotify_liked_songs(dry_run=True)),
+        }
+    else:
+        commands = {
+            "open chrome":       open_chrome,
+            "open firefox":      open_firefox,
+            "open terminal":     open_terminal,
+            "open vscode":       open_vscode,
+            "open vs code":      open_vscode,
+            "open code":         open_vscode,
+            "open file manager": open_file_manager,
+            "open explorer":     open_file_manager,
+            "open calculator":   open_calculator,
+            "open spotify":      open_spotify,
+            "open discord":      open_discord,
+            "open slack":        open_slack,
+            "open new window":   open_chrome,
+            "play liked songs":        play_spotify_liked_songs,
+            "play my liked songs":     play_spotify_liked_songs,
+            "spotify liked songs":     play_spotify_liked_songs,
+            "open liked songs":        play_spotify_liked_songs,
+        }
 
-    # Inject custom app shortcuts from config.yaml
+    # Inject custom app shortcuts from config.yaml.
+    # Built-in commands are protected: if a custom entry would overwrite a
+    # built-in phrase, log a warning and skip it.
     if apps_config:
         for keyword, path in apps_config.items():
             phrase = f"open {keyword.lower()}"
+            if phrase in commands:
+                logger.warning(
+                    "Custom app '%s' conflicts with built-in command '%s'; skipping.",
+                    keyword,
+                    phrase,
+                )
+                continue
             app_path = os.path.expandvars(os.path.expanduser(path))
-            # Create a closure that captures app_path correctly
-            commands[phrase] = (lambda p: lambda: _open_app(p))(app_path)
+            # Create a closure that captures app_path and dry_run correctly
+            commands[phrase] = (lambda p, dr=dry_run: lambda: _open_app(p, dry_run=dr))(app_path)
             logger.debug("Registered custom app command: '%s' → %s", phrase, app_path)
 
     return commands

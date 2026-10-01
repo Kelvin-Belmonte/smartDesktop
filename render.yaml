@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: smartdesktop-playground
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r playground/requirements.txt
+    startCommand: uvicorn playground.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"

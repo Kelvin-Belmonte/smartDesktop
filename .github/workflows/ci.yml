@@ -6,19 +6,79 @@ on:
   pull_request:
 
 jobs:
+  # -----------------------------------------------------------------------
+  # Matrix: voice-assistant tests + bandit on every OS × Python version
+  # -----------------------------------------------------------------------
   test:
-    runs-on: ubuntu-latest
+    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install test dependencies
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install voice-assistant test dependencies
         run: pip install pytest numpy pyyaml
+
       - name: Voice-assistant tests
         working-directory: voice-assistant
         run: python -m pytest tests -v
-      # Records the state of the Bob tasks. Fails until each stage is done; see BOB_TASKS.md.
-      - name: Bob task checks (informational)
-        continue-on-error: true
+
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: Bandit security scan (fail on high severity)
+        # --exit-zero is NOT set: a non-zero exit code (findings exist) fails the build.
+        # --severity-level high means only high-severity findings are reported and counted.
+        working-directory: voice-assistant
+        run: bandit -r . -x tests --severity-level high
+
+  # -----------------------------------------------------------------------
+  # Playground tests — only need to run on one OS × Python combination
+  # -----------------------------------------------------------------------
+  playground:
+    name: playground tests (ubuntu-latest, py3.12)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install playground dependencies
+        working-directory: playground
+        run: pip install -r requirements.txt pytest
+
+      - name: Install voice-assistant test stubs (pyyaml + numpy)
+        run: pip install pyyaml numpy
+
+      - name: Playground tests
+        run: python -m pytest playground/tests -v
+
+  # -----------------------------------------------------------------------
+  # Doc checks — informational only, run once
+  # -----------------------------------------------------------------------
+  docs:
+    name: Bob task checks (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bob task checks
         run: python scripts/check_docs.py --stage all

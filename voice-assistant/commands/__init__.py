@@ -24,6 +24,28 @@ logger = logging.getLogger(__name__)
 CommandMap = Dict[str, Callable[[], bool]]
 
 
+# Default destructive phrases that require user confirmation when confirm_destructive is True
+DESTRUCTIVE_COMMANDS = {
+    "close window",
+    "git pull",
+    "pull latest",
+    "run start",
+    "start server",
+    "run dev",
+    "start dev",
+    "run tests",
+    "run test",
+    "npm test",
+    "npm start",
+    "npm dev",
+    "npm build",
+    "run build",
+    "run python",
+    "run main",
+    "run pytest",
+}
+
+
 class CommandParser:
     """
     Parses a raw transcript and dispatches it to the correct action handler.
@@ -32,30 +54,57 @@ class CommandParser:
 
         parser = CommandParser(config)
         success = parser.execute("open chrome")
+
+        # Dry-run: no OS action; execute() still returns True when matched.
+        parser = CommandParser(config, dry_run=True)
+        success = parser.execute("open chrome")
     """
 
-    def __init__(self, config: dict):
+    def __init__(
+        self,
+        config: dict,
+        dry_run: bool = False,
+        confirm_callback: Optional[Callable[[str], bool]] = None,
+    ):
         """
         Build the command registry from the given configuration.
 
         Args:
-            config: Parsed ``config.yaml`` dict (full document).
+            config:           Parsed ``config.yaml`` dict (full document).
+            dry_run:          If True, no OS action is performed; handlers still return True.
+            confirm_callback: Optional callable(prompt_str) -> bool to confirm destructive actions.
         """
+        self.dry_run: bool = dry_run
+        self.confirm_callback = confirm_callback
         cmd_cfg = config.get("commands", {})
         self.prefix: str = cmd_cfg.get("prefix", "jarvis").lower()
+        self.confirm_destructive: bool = bool(cmd_cfg.get("confirm_destructive", False))
+
+        # Identify destructive commands including macros and project commands
+        self._destructive_commands = set(DESTRUCTIVE_COMMANDS)
+        macros_cfg = cmd_cfg.get("macros") or {}
+        for macro_phrase in macros_cfg:
+            self._destructive_commands.add(macro_phrase.lower())
+        projects_cfg = cmd_cfg.get("projects") or {}
+        for proj_name in projects_cfg:
+            self._destructive_commands.add(f"go to {proj_name.lower()}")
 
         self._commands: CommandMap = {}
-        self._commands.update(build_app_commands(cmd_cfg.get("apps")))
-        self._commands.update(build_window_commands())
+        self._commands.update(build_app_commands(cmd_cfg.get("apps"), dry_run=dry_run))
+        self._commands.update(build_window_commands(dry_run=dry_run))
         self._commands.update(
             build_terminal_commands(
                 projects_config=cmd_cfg.get("projects"),
                 macros_config=cmd_cfg.get("macros"),
+                parser=self,
+                dry_run=dry_run,
             )
         )
 
         logger.info(
-            "CommandParser initialised with %d commands.", len(self._commands)
+            "CommandParser initialised with %d commands (dry_run=%s).",
+            len(self._commands),
+            dry_run,
         )
 
     # ------------------------------------------------------------------
@@ -81,6 +130,12 @@ class CommandParser:
             logger.warning("No command matched for: '%s'", phrase)
             return False
 
+        if self.is_destructive(matched) and not self.dry_run and self.confirm_destructive:
+            confirmed = self._confirm_action(matched)
+            if not confirmed:
+                logger.info("Command '%s' cancelled by user.", matched)
+                return False
+
         logger.info("Executing command '%s'...", matched)
         try:
             result = handler()
@@ -95,10 +150,20 @@ class CommandParser:
             )
             return False
 
+    def is_destructive(self, command: str) -> bool:
+        """Return True if ``command`` is classified as destructive or high-impact."""
+        return command.lower() in self._destructive_commands
+
     @property
     def registered_commands(self) -> list:
         """Return a sorted list of all registered command phrases."""
         return sorted(self._commands.keys())
+
+    def _confirm_action(self, command: str) -> bool:
+        """Prompt for confirmation before executing a destructive action."""
+        if self.confirm_callback is not None:
+            return self.confirm_callback(command)
+        return True
 
     # ------------------------------------------------------------------
     # Private helpers

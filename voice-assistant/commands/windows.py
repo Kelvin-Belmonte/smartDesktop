@@ -71,12 +71,15 @@ def _get_monitors() -> List[Dict[str, int]]:
 
 def _get_window(title_fragment: str):
     """
-    Return the first window whose title contains ``title_fragment`` (case-insensitive).
+    Return the window matching ``title_fragment``.
 
+    If ``title_fragment`` is empty, returns the currently active window.
     Returns None on platforms where pygetwindow is not available.
     """
     try:
         import pygetwindow as gw
+        if not title_fragment:
+            return gw.getActiveWindow()
         matches = gw.getWindowsWithTitle(title_fragment)
         return matches[0] if matches else None
     except Exception as exc:
@@ -88,8 +91,11 @@ def _get_window(title_fragment: str):
 # Window command handlers
 # ---------------------------------------------------------------------------
 
-def minimise_window(title: str = "") -> bool:
+def minimise_window(title: str = "", dry_run: bool = False) -> bool:
     """Minimise the window matching *title*, or the active window if empty."""
+    if dry_run:
+        logger.info("[dry-run] Would minimise window: '%s'", title or "<active>")
+        return True
     win = _get_window(title)
     if win:
         try:
@@ -103,8 +109,11 @@ def minimise_window(title: str = "") -> bool:
     return False
 
 
-def maximise_window(title: str = "") -> bool:
+def maximise_window(title: str = "", dry_run: bool = False) -> bool:
     """Maximise the window matching *title*, or the active window if empty."""
+    if dry_run:
+        logger.info("[dry-run] Would maximise window: '%s'", title or "<active>")
+        return True
     win = _get_window(title)
     if win:
         try:
@@ -118,8 +127,11 @@ def maximise_window(title: str = "") -> bool:
     return False
 
 
-def restore_window(title: str = "") -> bool:
+def restore_window(title: str = "", dry_run: bool = False) -> bool:
     """Restore (un-minimise) the window matching *title*."""
+    if dry_run:
+        logger.info("[dry-run] Would restore window: '%s'", title or "<active>")
+        return True
     win = _get_window(title)
     if win:
         try:
@@ -133,8 +145,11 @@ def restore_window(title: str = "") -> bool:
     return False
 
 
-def close_window(title: str = "") -> bool:
+def close_window(title: str = "", dry_run: bool = False) -> bool:
     """Close the window matching *title*."""
+    if dry_run:
+        logger.info("[dry-run] Would close window: '%s'", title or "<active>")
+        return True
     win = _get_window(title)
     if win:
         try:
@@ -148,8 +163,11 @@ def close_window(title: str = "") -> bool:
     return False
 
 
-def focus_window(title: str) -> bool:
+def focus_window(title: str, dry_run: bool = False) -> bool:
     """Bring the window matching *title* to the foreground."""
+    if dry_run:
+        logger.info("[dry-run] Would focus window: '%s'", title)
+        return True
     win = _get_window(title)
     if win:
         try:
@@ -163,8 +181,11 @@ def focus_window(title: str) -> bool:
     return False
 
 
-def snap_left() -> bool:
+def snap_left(dry_run: bool = False) -> bool:
     """Snap the active window to the left half of the screen (Windows only)."""
+    if dry_run:
+        logger.info("[dry-run] Would snap active window to left.")
+        return True
     if _OS == "Windows":
         import pyautogui
         pyautogui.hotkey("win", "left")
@@ -174,8 +195,11 @@ def snap_left() -> bool:
     return False
 
 
-def snap_right() -> bool:
+def snap_right(dry_run: bool = False) -> bool:
     """Snap the active window to the right half of the screen (Windows only)."""
+    if dry_run:
+        logger.info("[dry-run] Would snap active window to right.")
+        return True
     if _OS == "Windows":
         import pyautogui
         pyautogui.hotkey("win", "right")
@@ -185,7 +209,7 @@ def snap_right() -> bool:
     return False
 
 
-def swap_monitors() -> bool:
+def swap_monitors(dry_run: bool = False) -> bool:
     """
     Move all visible windows between monitors in a sequential rotation.
 
@@ -195,6 +219,10 @@ def swap_monitors() -> bool:
     Each window is placed at the same *relative* position within its destination
     monitor so that the layout is preserved.  Minimised windows are left untouched.
     """
+    if dry_run:
+        logger.info("[dry-run] Would swap/rotate all windows across monitors.")
+        return True
+
     if _OS != "Windows":
         logger.warning("swap_monitors is only supported on Windows.")
         return False
@@ -253,8 +281,11 @@ def swap_monitors() -> bool:
     return True
 
 
-def extend_displays() -> bool:
+def extend_displays(dry_run: bool = False) -> bool:
     """Extend displays across all monitors (Windows only)."""
+    if dry_run:
+        logger.info("[dry-run] Would extend displays.")
+        return True
     if _OS != "Windows":
         return False
     try:
@@ -270,18 +301,33 @@ def extend_displays() -> bool:
 # Command map
 # ---------------------------------------------------------------------------
 
-def build_window_commands() -> Dict[str, callable]:
+def build_window_commands(dry_run: bool = False) -> Dict[str, callable]:
     """Return a mapping of command phrases to window management handlers."""
+    if dry_run:
+        return {
+            "minimise window":  (lambda: minimise_window(dry_run=True)),
+            "minimize window":  (lambda: minimise_window(dry_run=True)),
+            "maximise window":  (lambda: maximise_window(dry_run=True)),
+            "maximize window":  (lambda: maximise_window(dry_run=True)),
+            "restore window":   (lambda: restore_window(dry_run=True)),
+            "close window":     (lambda: close_window(dry_run=True)),
+            "snap left":        (lambda: snap_left(dry_run=True)),
+            "snap right":       (lambda: snap_right(dry_run=True)),
+            "swap monitors":    (lambda: swap_monitors(dry_run=True)),
+            "switch monitors":  (lambda: swap_monitors(dry_run=True)),
+            "extend displays":  (lambda: extend_displays(dry_run=True)),
+            "extend monitors":  (lambda: extend_displays(dry_run=True)),
+        }
     return {
         "minimise window": lambda: minimise_window(),
         "minimize window": lambda: minimise_window(),
         "maximise window": lambda: maximise_window(),
         "maximize window": lambda: maximise_window(),
-        "restore window": lambda: restore_window(),
-        "close window": lambda: close_window(),
-        "snap left": snap_left,
-        "snap right": snap_right,
-        "swap monitors": swap_monitors,
+        "restore window":  lambda: restore_window(),
+        "close window":    lambda: close_window(),
+        "snap left":       snap_left,
+        "snap right":      snap_right,
+        "swap monitors":   swap_monitors,
         "switch monitors": swap_monitors,
         "extend displays": extend_displays,
         "extend monitors": extend_displays,
