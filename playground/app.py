@@ -47,12 +47,9 @@ sys.modules["pygetwindow"].getActiveWindow = _mock.MagicMock(return_value=None) 
 # ---------------------------------------------------------------------------
 # Now import the project code and FastAPI
 # ---------------------------------------------------------------------------
-import platform as _platform
-
 import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from commands import CommandParser, _resolve_os

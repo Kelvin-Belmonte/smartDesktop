@@ -14,7 +14,7 @@ import ctypes.wintypes
 import logging
 import platform
 import subprocess
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,6 @@ import platform
 import shlex
 import shutil
 import subprocess
-import sys
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)

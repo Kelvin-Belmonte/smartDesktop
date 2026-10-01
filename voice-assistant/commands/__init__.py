@@ -13,11 +13,11 @@ Command matching strategy (in priority order):
 
 import logging
 import platform
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 from commands.apps import build_app_commands, plan_app_command, _APP_TARGETS, _APP_ALIASES
-from commands.terminal import build_terminal_commands, plan_terminal_command, _TERMINAL_COMMANDS
-from commands.windows import build_window_commands, plan_window_command, _WINDOW_ACTIONS
+from commands.terminal import build_terminal_commands, plan_terminal_command
+from commands.windows import build_window_commands, plan_window_command
 
 logger = logging.getLogger(__name__)
 
